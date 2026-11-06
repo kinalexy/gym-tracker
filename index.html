@@ -149,6 +149,7 @@
     </div>
 
     <script>
+        const BOT_TOKEN = "9061762719:AAE1Tb8eGHCnBMVVnOyuGYuYD31SkN0oQIk";
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
@@ -178,13 +179,11 @@
         const exSelect = document.getElementById('exercise-select');
         const setsList = document.getElementById('sets-list');
 
-        // Расчет 1ПМ по формуле Эпли
         function calc1RM(weight, reps) {
             if (reps <= 1) return weight;
             return Math.round(weight * (1 + reps / 30) * 10) / 10;
         }
 
-        // Обновление подсказки 1ПМ
         function update1RMPrediction() {
             const w = parseFloat(document.getElementById('input-weight').value) || 0;
             const r = parseInt(document.getElementById('input-reps').value) || 0;
@@ -192,7 +191,6 @@
             document.getElementById('predicted-1rm').innerText = `Расчетный 1ПМ: ~${rm} кг`;
         }
 
-        // Кнопки быстрой корректировки +/-
         window.adjustValue = function(elementId, delta) {
             const el = document.getElementById(elementId);
             let val = (parseFloat(el.value) || 0) + delta;
@@ -240,12 +238,10 @@
             const currentEx = exSelect.value;
             const history = workoutData.filter(s => s.exercise === currentEx);
 
-            // 1. Подсказка "В прошлый раз:"
             const hintEl = document.getElementById('prev-workout-hint');
             if (history.length > 0) {
                 const lastSets = history.slice(-3);
                 hintEl.innerHTML = `В прошлый раз: <span class="text-emerald-300 font-semibold">${lastSets.map(s => `${s.weight}×${s.reps}`).join(', ')}</span>`;
-                // Автоподстановка веса последнего подхода
                 const last = history[history.length - 1];
                 document.getElementById('input-weight').value = last.weight;
                 document.getElementById('input-reps').value = last.reps;
@@ -291,7 +287,6 @@
             });
         }
 
-        // Запись подхода с определением рекорда (PR)
         document.getElementById('add-set-btn').addEventListener('click', () => {
             const weight = parseFloat(document.getElementById('input-weight').value);
             const reps = parseInt(document.getElementById('input-reps').value);
@@ -302,8 +297,6 @@
             const new1RM = calc1RM(weight, reps);
             const prevSets = workoutData.filter(s => s.exercise === currentEx);
             const maxPrev1RM = prevSets.reduce((max, s) => Math.max(max, calc1RM(s.weight, s.reps)), 0);
-            
-            // Если расчетный 1ПМ выше предыдущего максимума — фиксируем рекорд
             const isPR = prevSets.length > 0 && new1RM > maxPrev1RM;
 
             workoutData.push({
@@ -420,7 +413,6 @@
             });
         }
 
-        // Скачивание бэкапа
         window.downloadBackup = function() {
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workoutData, null, 2));
             const dlAnchor = document.createElement('a');
@@ -431,8 +423,8 @@
             dlAnchor.remove();
         };
 
-        // Завершение тренировки (отправка пакета данных в Python-бота)
-        document.getElementById('end-workout-btn').addEventListener('click', () => {
+        // Прямая отправка отчёта в чат Telegram через Bot API
+        document.getElementById('end-workout-btn').addEventListener('click', async () => {
             const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
             const todaySets = workoutData.filter(s => s.date === today);
 
@@ -441,15 +433,47 @@
                 return;
             }
 
-            if (confirm("Завершить тренировку и отправить отчет в чат?")) {
-                if (tg.sendData) {
-                    tg.sendData(JSON.stringify({
-                        split: currentSplit === 'upper' ? 'Верх тела' : 'Низ тела',
-                        sets: todaySets
-                    }));
-                }
-                tg.close();
+            if (!confirm("Завершить тренировку и отправить отчет в чат?")) return;
+
+            const userId = tg.initDataUnsafe?.user?.id;
+            const splitName = currentSplit === 'upper' ? 'Верх тела' : 'Низ тела';
+            const totalTonnage = Math.round(todaySets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
+
+            // Формируем текст отчета
+            let message = `🏁 *Отчет: ${splitName}*\n📅 _${new Date().toLocaleDateString('ru-RU')}_\n\n`;
+            
+            const grouped = {};
+            todaySets.forEach(s => {
+                grouped[s.exercise] = grouped[s.exercise] || [];
+                grouped[s.exercise].push(s);
+            });
+
+            for (const [ex, sets] of Object.entries(grouped)) {
+                const exTonnage = Math.round(sets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
+                const setsStr = sets.map(s => `${s.weight}×${s.reps}${s.isPR ? ' 🏆' : ''}`).join(', ');
+                message += `• *${ex}:* ${setsStr} _(${exTonnage} кг)_\n`;
             }
+
+            message += `────────────────\n📊 *Итоговый тоннаж:* ${totalTonnage} кг\n🔢 *Всего подходов:* ${todaySets.length}`;
+
+            // Если запущен внутри Telegram с известным ID
+            if (userId) {
+                try {
+                    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chat_id: userId,
+                            text: message,
+                            parse_mode: 'Markdown'
+                        })
+                    });
+                } catch (err) {
+                    console.error("Ошибка отправки отчета:", err);
+                }
+            }
+
+            tg.close();
         });
 
         setSplit(currentSplit);
