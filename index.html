@@ -35,10 +35,9 @@
         </button>
     </div>
 
-    <!-- ВКЛАДКА: СЕССИЯ -->
+    <!-- ВКЛАДКА 1: СЕССИЯ -->
     <div id="workout-tab" class="space-y-4">
         <div class="bg-slate-800/60 border border-slate-700/50 p-4 rounded-2xl">
-            <!-- Шапка упражнения -->
             <div class="flex justify-between items-center mb-1">
                 <label class="block text-xs text-slate-400 font-semibold tracking-wide">УПРАЖНЕНИЕ</label>
                 <div class="flex gap-2">
@@ -47,22 +46,16 @@
                 </div>
             </div>
 
-            <!-- Селектор упражнения -->
-            <select id="exercise-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm font-bold text-white mb-2 outline-none focus:border-emerald-500">
-            </select>
+            <select id="exercise-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm font-bold text-white mb-2 outline-none focus:border-emerald-500"></select>
 
-            <!-- Подсказка прошлой тренировки -->
             <div id="prev-workout-hint" class="text-[11px] text-slate-400 mb-3 bg-slate-900/40 px-2.5 py-1.5 rounded-lg border border-slate-800/80">
                 В прошлый раз: <span class="text-slate-300 italic">нет данных</span>
             </div>
 
-            <!-- Список текущих подходов -->
             <div class="space-y-2 mb-4" id="sets-list"></div>
 
-            <!-- Блок ввода с быстрыми кнопками шага -->
             <div class="border-t border-slate-700/60 pt-3">
                 <div class="grid grid-cols-2 gap-3 mb-2">
-                    <!-- ВЕС -->
                     <div>
                         <span class="block text-xs text-slate-400 mb-1 text-center font-semibold">Вес (кг)</span>
                         <div class="flex items-center gap-1">
@@ -71,8 +64,6 @@
                             <button type="button" onclick="adjustValue('input-weight', 2.5)" class="w-9 h-10 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-xl text-xs">+2.5</button>
                         </div>
                     </div>
-
-                    <!-- ПОВТОРЕНИЯ -->
                     <div>
                         <span class="block text-xs text-slate-400 mb-1 text-center font-semibold">Повторения</span>
                         <div class="flex items-center gap-1">
@@ -83,7 +74,6 @@
                     </div>
                 </div>
 
-                <!-- Подсказка расчетного 1ПМ -->
                 <div class="text-center mb-3">
                     <span id="predicted-1rm" class="text-[11px] text-cyan-400 font-semibold bg-cyan-950/40 px-2 py-0.5 rounded-full border border-cyan-800/40">
                         Расчетный 1ПМ: ~101 кг
@@ -97,14 +87,21 @@
         </div>
     </div>
 
-    <!-- ВКЛАДКА: ПРОГРЕСС -->
+    <!-- ВКЛАДКА 2: ИСТОРИЯ ТРЕНИРОВОК -->
+    <div id="history-tab" class="hidden space-y-3">
+        <h3 class="text-sm font-bold text-slate-300 mb-2 px-1">Завершенные тренировки</h3>
+        <div id="completed-workouts-list" class="space-y-3">
+            <!-- Карточки тренировок генерируются здесь -->
+        </div>
+    </div>
+
+    <!-- ВКЛАДКА 3: ПРОГРЕСС -->
     <div id="progress-tab" class="hidden space-y-4">
         <div class="bg-slate-800/60 border border-slate-700/50 p-4 rounded-2xl">
             <h3 class="text-sm font-bold text-slate-300 mb-3">График рабочих весов</h3>
             <canvas id="progressChart" class="w-full h-48"></canvas>
         </div>
 
-        <!-- Кнопка выгрузки бэкапа -->
         <div class="bg-slate-800/60 border border-slate-700/50 p-4 rounded-2xl">
             <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Резервная копия данных</h4>
             <p class="text-xs text-slate-400 mb-3">Сохраните файл со всей историей подходов на случай сброса кэша.</p>
@@ -142,6 +139,10 @@
             <span class="text-lg">🏋️</span>
             <span class="text-[11px] font-bold">Сессия</span>
         </button>
+        <button type="button" onclick="switchTab('history')" id="nav-history" class="flex flex-col items-center gap-1 text-slate-500">
+            <span class="text-lg">📋</span>
+            <span class="text-[11px] font-bold">История</span>
+        </button>
         <button type="button" onclick="switchTab('progress')" id="nav-progress" class="flex flex-col items-center gap-1 text-slate-500">
             <span class="text-lg">📈</span>
             <span class="text-[11px] font-bold">Прогресс</span>
@@ -168,13 +169,8 @@
 
         let currentSplit = localStorage.getItem('currentSplit') || 'upper';
         let exercises = JSON.parse(localStorage.getItem('exercisesList')) || defaultExercises;
-
-        let rawWorkoutData = JSON.parse(localStorage.getItem('workoutData')) || [];
-        let workoutData = rawWorkoutData.map((item, idx) => {
-            if (!item.id) item.id = 'set_' + Date.now() + '_' + idx;
-            return item;
-        });
-        localStorage.setItem('workoutData', JSON.stringify(workoutData));
+        let workoutData = JSON.parse(localStorage.getItem('workoutData')) || [];
+        let completedWorkouts = JSON.parse(localStorage.getItem('completedWorkouts')) || [];
 
         const exSelect = document.getElementById('exercise-select');
         const setsList = document.getElementById('sets-list');
@@ -362,22 +358,68 @@
 
         exSelect.addEventListener('change', onExerciseChanged);
 
+        function renderHistoryList() {
+            const container = document.getElementById('completed-workouts-list');
+            container.innerHTML = '';
+
+            if (completedWorkouts.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-slate-800/40 border border-slate-700/40 p-6 rounded-2xl text-center">
+                        <p class="text-xs text-slate-400">Пока нет завершенных тренировок.<br>Нажмите «Завершить» во время тренировки, чтобы сохранить её сюда.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Выводим от самых свежих к старым
+            completedWorkouts.slice().reverse().forEach(w => {
+                let exercisesHTML = '';
+                for (const [ex, sList] of Object.entries(w.groupedSets || {})) {
+                    const setsStr = sList.map(s => `${s.weight}×${s.reps}${s.isPR ? ' 🏆' : ''}`).join(', ');
+                    exercisesHTML += `<p class="text-xs text-slate-300">• <span class="font-bold text-white">${ex}:</span> ${setsStr}</p>`;
+                }
+
+                container.innerHTML += `
+                    <div class="bg-slate-800/60 border border-slate-700/50 p-4 rounded-2xl space-y-2">
+                        <div class="flex justify-between items-center border-b border-slate-700/40 pb-2">
+                            <div>
+                                <span class="text-sm font-black text-emerald-400">${w.split}</span>
+                                <span class="text-[11px] text-slate-400 block">${w.date} в ${w.time}</span>
+                            </div>
+                            <span class="text-xs font-extrabold text-cyan-400 bg-cyan-950/40 px-2 py-1 rounded-lg border border-cyan-800/30">${w.tonnage} кг</span>
+                        </div>
+                        <div class="space-y-1 pt-1">${exercisesHTML}</div>
+                    </div>
+                `;
+            });
+        }
+
         function switchTab(tab) {
             const workout = document.getElementById('workout-tab');
+            const history = document.getElementById('history-tab');
             const progress = document.getElementById('progress-tab');
             const navW = document.getElementById('nav-workout');
+            const navH = document.getElementById('nav-history');
             const navP = document.getElementById('nav-progress');
+
+            workout.classList.add('hidden');
+            history.classList.add('hidden');
+            progress.classList.add('hidden');
+
+            navW.className = "flex flex-col items-center gap-1 text-slate-500";
+            navH.className = "flex flex-col items-center gap-1 text-slate-500";
+            navP.className = "flex flex-col items-center gap-1 text-slate-500";
 
             if (tab === 'workout') {
                 workout.classList.remove('hidden');
-                progress.classList.add('hidden');
                 navW.className = "flex flex-col items-center gap-1 text-emerald-400";
-                navP.className = "flex flex-col items-center gap-1 text-slate-500";
+            } else if (tab === 'history') {
+                history.classList.remove('hidden');
+                navH.className = "flex flex-col items-center gap-1 text-emerald-400";
+                renderHistoryList();
             } else {
-                workout.classList.add('hidden');
                 progress.classList.remove('hidden');
                 navP.className = "flex flex-col items-center gap-1 text-emerald-400";
-                navW.className = "flex flex-col items-center gap-1 text-slate-500";
                 drawChart();
             }
         }
@@ -414,7 +456,12 @@
         }
 
         window.downloadBackup = function() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workoutData, null, 2));
+            const backupPayload = {
+                exercises: exercises,
+                sets: workoutData,
+                completedWorkouts: completedWorkouts
+            };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupPayload, null, 2));
             const dlAnchor = document.createElement('a');
             dlAnchor.setAttribute("href", dataStr);
             dlAnchor.setAttribute("download", `gym_backup_${new Date().toISOString().slice(0,10)}.json`);
@@ -423,7 +470,7 @@
             dlAnchor.remove();
         };
 
-        // Прямая отправка отчёта в чат Telegram через Bot API
+        // Завершение тренировки: сохранение в историю телефона + отправка отчета в чат
         document.getElementById('end-workout-btn').addEventListener('click', async () => {
             const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
             const todaySets = workoutData.filter(s => s.date === today);
@@ -433,30 +480,40 @@
                 return;
             }
 
-            if (!confirm("Завершить тренировку и отправить отчет в чат?")) return;
+            if (!confirm("Завершить тренировку и сохранить в историю?")) return;
 
-            const userId = tg.initDataUnsafe?.user?.id;
             const splitName = currentSplit === 'upper' ? 'Верх тела' : 'Низ тела';
             const totalTonnage = Math.round(todaySets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
 
-            // Формируем текст отчета
-            let message = `🏁 *Отчет: ${splitName}*\n📅 _${new Date().toLocaleDateString('ru-RU')}_\n\n`;
-            
+            // Группировка
             const grouped = {};
             todaySets.forEach(s => {
                 grouped[s.exercise] = grouped[s.exercise] || [];
                 grouped[s.exercise].push(s);
             });
 
+            // 1. Сохраняем завершенную тренировку в историю внутри телефона
+            completedWorkouts.push({
+                id: Date.now(),
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                split: splitName,
+                tonnage: totalTonnage,
+                setsCount: todaySets.length,
+                groupedSets: grouped
+            });
+            localStorage.setItem('completedWorkouts', JSON.stringify(completedWorkouts));
+
+            // 2. Отправляем отчет в чат Telegram
+            const userId = tg.initDataUnsafe?.user?.id;
+            let message = `🏁 *Отчет: ${splitName}*\n📅 _${new Date().toLocaleDateString('ru-RU')}_\n\n`;
             for (const [ex, sets] of Object.entries(grouped)) {
                 const exTonnage = Math.round(sets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
                 const setsStr = sets.map(s => `${s.weight}×${s.reps}${s.isPR ? ' 🏆' : ''}`).join(', ');
                 message += `• *${ex}:* ${setsStr} _(${exTonnage} кг)_\n`;
             }
-
             message += `────────────────\n📊 *Итоговый тоннаж:* ${totalTonnage} кг\n🔢 *Всего подходов:* ${todaySets.length}`;
 
-            // Если запущен внутри Telegram с известным ID
             if (userId) {
                 try {
                     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -469,7 +526,7 @@
                         })
                     });
                 } catch (err) {
-                    console.error("Ошибка отправки отчета:", err);
+                    console.error(err);
                 }
             }
 
