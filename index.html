@@ -90,9 +90,7 @@
     <!-- ВКЛАДКА 2: ИСТОРИЯ ТРЕНИРОВОК -->
     <div id="history-tab" class="hidden space-y-3">
         <h3 class="text-sm font-bold text-slate-300 mb-2 px-1">Завершенные тренировки</h3>
-        <div id="completed-workouts-list" class="space-y-3">
-            <!-- Карточки тренировок генерируются здесь -->
-        </div>
+        <div id="completed-workouts-list" class="space-y-3"></div>
     </div>
 
     <!-- ВКЛАДКА 3: ПРОГРЕСС -->
@@ -371,7 +369,6 @@
                 return;
             }
 
-            // Выводим от самых свежих к старым
             completedWorkouts.slice().reverse().forEach(w => {
                 let exercisesHTML = '';
                 for (const [ex, sList] of Object.entries(w.groupedSets || {})) {
@@ -470,7 +467,7 @@
             dlAnchor.remove();
         };
 
-        // Завершение тренировки: сохранение в историю телефона + отправка отчета в чат
+        // Завершение тренировки с детальным отчётом
         document.getElementById('end-workout-btn').addEventListener('click', async () => {
             const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
             const todaySets = workoutData.filter(s => s.date === today);
@@ -480,19 +477,71 @@
                 return;
             }
 
-            if (!confirm("Завершить тренировку и сохранить в историю?")) return;
+            if (!confirm("Завершить тренировку и отправить отчет?")) return;
 
             const splitName = currentSplit === 'upper' ? 'Верх тела' : 'Низ тела';
             const totalTonnage = Math.round(todaySets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
+            const totalReps = todaySets.reduce((sum, s) => sum + s.reps, 0);
+            const avgWeight = totalReps > 0 ? (totalTonnage / totalReps).toFixed(1) : 0;
 
-            // Группировка
+            // Сравнение тоннажа с предыдущей сессией такого же сплита
+            const prevWorkout = completedWorkouts.slice().reverse().find(w => w.split === splitName);
+            let tonnageDiffStr = '';
+            if (prevWorkout) {
+                const diff = totalTonnage - prevWorkout.tonnage;
+                if (diff > 0) {
+                    tonnageDiffStr = ` (+${diff.toLocaleString('ru-RU')} кг к прошлой сессии ↗️)`;
+                } else if (diff < 0) {
+                    tonnageDiffStr = ` (${diff.toLocaleString('ru-RU')} кг к прошлой сессии ↘️)`;
+                } else {
+                    tonnageDiffStr = ` (= к прошлой сессии)`;
+                }
+            }
+
+            // Группировка подходов по упражнениям
             const grouped = {};
             todaySets.forEach(s => {
                 grouped[s.exercise] = grouped[s.exercise] || [];
                 grouped[s.exercise].push(s);
             });
 
-            // 1. Сохраняем завершенную тренировку в историю внутри телефона
+            // Подсчет упражнений с новыми рекордами (PR)
+            const prExercises = [...new Set(todaySets.filter(s => s.isPR).map(s => s.exercise))];
+            const prSummary = prExercises.length > 0 
+                ? `${prExercises.length} (${prExercises.join(', ')}) 🏆` 
+                : '0';
+
+            // Сборка сообщения
+            let message = `🏁 *ТРЕНИРОВКА: ${splitName}*\n📅 _${new Date().toLocaleDateString('ru-RU')}_\n\n📋 *УПРАЖНЕНИЯ:*\n`;
+
+            for (const [ex, sets] of Object.entries(grouped)) {
+                const exTonnage = Math.round(sets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
+                const setsStr = sets.map(s => `${s.weight}×${s.reps}${s.isPR ? ' 🏆' : ''}`).join(', ');
+
+                // Определение топ-сета (подхода с наибольшим расчетным 1ПМ)
+                let topSet = sets[0];
+                let topSet1RM = calc1RM(topSet.weight, topSet.reps);
+                sets.forEach(s => {
+                    const current1RM = calc1RM(s.weight, s.reps);
+                    if (current1RM > topSet1RM) {
+                        topSet = s;
+                        topSet1RM = current1RM;
+                    }
+                });
+
+                message += `• *${ex}*\n`;
+                message += `  ├ ${setsStr}\n`;
+                message += `  ├ ⭐ Топ-сет: ${topSet.weight} кг × ${topSet.reps} (1ПМ ~${topSet1RM} кг)\n`;
+                message += `  └ Тоннаж: ${exTonnage.toLocaleString('ru-RU')} кг\n\n`;
+            }
+
+            message += `────────────────────\n📊 *ИТОГИ СЕССИИ:*\n`;
+            message += `• Общий тоннаж: ${totalTonnage.toLocaleString('ru-RU')} кг${tonnageDiffStr}\n`;
+            message += `• Подходов: ${todaySets.length}  |  Повторений: ${totalReps}\n`;
+            message += `• Средний рабочий вес: ${avgWeight} кг\n`;
+            message += `• 🏆 Новые рекорды: ${prSummary}`;
+
+            // Сохранение в локальную историю внутри телефона
             completedWorkouts.push({
                 id: Date.now(),
                 date: new Date().toLocaleDateString('ru-RU'),
@@ -500,20 +549,13 @@
                 split: splitName,
                 tonnage: totalTonnage,
                 setsCount: todaySets.length,
+                totalReps: totalReps,
                 groupedSets: grouped
             });
             localStorage.setItem('completedWorkouts', JSON.stringify(completedWorkouts));
 
-            // 2. Отправляем отчет в чат Telegram
+            // Отправка в диалог Telegram
             const userId = tg.initDataUnsafe?.user?.id;
-            let message = `🏁 *Отчет: ${splitName}*\n📅 _${new Date().toLocaleDateString('ru-RU')}_\n\n`;
-            for (const [ex, sets] of Object.entries(grouped)) {
-                const exTonnage = Math.round(sets.reduce((sum, s) => sum + (s.weight * s.reps), 0));
-                const setsStr = sets.map(s => `${s.weight}×${s.reps}${s.isPR ? ' 🏆' : ''}`).join(', ');
-                message += `• *${ex}:* ${setsStr} _(${exTonnage} кг)_\n`;
-            }
-            message += `────────────────\n📊 *Итоговый тоннаж:* ${totalTonnage} кг\n🔢 *Всего подходов:* ${todaySets.length}`;
-
             if (userId) {
                 try {
                     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -526,7 +568,7 @@
                         })
                     });
                 } catch (err) {
-                    console.error(err);
+                    console.error("Ошибка отправки отчета:", err);
                 }
             }
 
